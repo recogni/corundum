@@ -76,6 +76,14 @@ module port #
     parameter RX_PKT_TABLE_SIZE = 8,
     // Width of descriptor table field for tracking outstanding DMA operations
     parameter DESC_TABLE_DMA_OP_COUNT_WIDTH = 4,
+    // Max number of in-flight descriptor requests (transmit)
+    parameter TX_MAX_DESC_REQ = 16,
+    // Transmit descriptor FIFO size
+    parameter TX_DESC_FIFO_SIZE = TX_MAX_DESC_REQ*8,
+    // Max number of in-flight descriptor requests (transmit)
+    parameter RX_MAX_DESC_REQ = 16,
+    // Receive descriptor FIFO size
+    parameter RX_DESC_FIFO_SIZE = RX_MAX_DESC_REQ*8,
     // Transmit scheduler type
     parameter TX_SCHEDULER = "RR",
     // Scheduler operation table size
@@ -561,6 +569,9 @@ reg sched_enable_reg = 1'b0;
 
 reg [RX_QUEUE_INDEX_WIDTH-1:0] rss_mask_reg = 0;
 
+reg [DMA_CLIENT_LEN_WIDTH-1:0] tx_mtu_reg = MAX_TX_SIZE;
+reg [DMA_CLIENT_LEN_WIDTH-1:0] rx_mtu_reg = MAX_RX_SIZE;
+
 reg tdma_enable_reg = 1'b0;
 wire tdma_locked;
 wire tdma_error;
@@ -615,36 +626,38 @@ always @(posedge clk) begin
                 end
             end
             16'h0080: rss_mask_reg <= axil_ctrl_wdata; // RSS mask
-            16'h0100: begin
+            16'h0100: tx_mtu_reg <= axil_ctrl_wdata; // TX MTU
+            16'h0200: rx_mtu_reg <= axil_ctrl_wdata; // RX MTU
+            16'h1000: begin
                 // TDMA control
                 if (axil_ctrl_wstrb[0]) begin
                     tdma_enable_reg <= axil_ctrl_wdata[0];
                 end
             end
-            16'h0114: set_tdma_schedule_start_reg[29:0] <= axil_ctrl_wdata; // TDMA schedule start ns
-            16'h0118: set_tdma_schedule_start_reg[63:32] <= axil_ctrl_wdata; // TDMA schedule start sec l
-            16'h011C: begin
+            16'h1014: set_tdma_schedule_start_reg[29:0] <= axil_ctrl_wdata; // TDMA schedule start ns
+            16'h1018: set_tdma_schedule_start_reg[63:32] <= axil_ctrl_wdata; // TDMA schedule start sec l
+            16'h101C: begin
                 // TDMA schedule start sec h
                 set_tdma_schedule_start_reg[79:64] <= axil_ctrl_wdata;
                 set_tdma_schedule_start_valid_reg <= 1'b1;
             end
-            16'h0124: set_tdma_schedule_period_reg[29:0] <= axil_ctrl_wdata; // TDMA schedule period ns
-            16'h0128: set_tdma_schedule_period_reg[63:32] <= axil_ctrl_wdata; // TDMA schedule period sec l
-            16'h012C: begin
+            16'h1024: set_tdma_schedule_period_reg[29:0] <= axil_ctrl_wdata; // TDMA schedule period ns
+            16'h1028: set_tdma_schedule_period_reg[63:32] <= axil_ctrl_wdata; // TDMA schedule period sec l
+            16'h102C: begin
                 // TDMA schedule period sec h
                 set_tdma_schedule_period_reg[79:64] <= axil_ctrl_wdata;
                 set_tdma_schedule_period_valid_reg <= 1'b1;
             end
-            16'h0134: set_tdma_timeslot_period_reg[29:0] <= axil_ctrl_wdata; // TDMA timeslot period ns
-            16'h0138: set_tdma_timeslot_period_reg[63:32] <= axil_ctrl_wdata; // TDMA timeslot period sec l
-            16'h013C: begin
+            16'h1034: set_tdma_timeslot_period_reg[29:0] <= axil_ctrl_wdata; // TDMA timeslot period ns
+            16'h1038: set_tdma_timeslot_period_reg[63:32] <= axil_ctrl_wdata; // TDMA timeslot period sec l
+            16'h103C: begin
                 // TDMA timeslot period sec h
                 set_tdma_timeslot_period_reg[79:64] <= axil_ctrl_wdata;
                 set_tdma_timeslot_period_valid_reg <= 1'b1;
             end
-            16'h0144: set_tdma_active_period_reg[29:0] <= axil_ctrl_wdata; // TDMA active period ns
-            16'h0148: set_tdma_active_period_reg[63:32] <= axil_ctrl_wdata; // TDMA active period sec l
-            16'h014C: begin
+            16'h1044: set_tdma_active_period_reg[29:0] <= axil_ctrl_wdata; // TDMA active period ns
+            16'h1048: set_tdma_active_period_reg[63:32] <= axil_ctrl_wdata; // TDMA active period sec l
+            16'h104C: begin
                 // TDMA active period sec h
                 set_tdma_active_period_reg[79:64] <= axil_ctrl_wdata;
                 set_tdma_active_period_valid_reg <= 1'b1;
@@ -678,28 +691,30 @@ always @(posedge clk) begin
                 axil_ctrl_rdata_reg[0] <= sched_enable_reg;
             end
             16'h0080: axil_ctrl_rdata_reg <= rss_mask_reg; // RSS mask
-            16'h0100: begin
+            16'h0100: axil_ctrl_rdata_reg <= tx_mtu_reg; // TX MTU
+            16'h0200: axil_ctrl_rdata_reg <= rx_mtu_reg; // RX MTU
+            16'h1000: begin
                 // TDMA control
                 axil_ctrl_rdata_reg[0] <= tdma_enable_reg;
             end
-            16'h0104: begin
+            16'h1004: begin
                 // TDMA status
                 axil_ctrl_rdata_reg[0] <= tdma_locked;
                 axil_ctrl_rdata_reg[1] <= tdma_error;
             end
-            16'h0108: axil_ctrl_rdata_reg <= 2**TDMA_INDEX_WIDTH; // TDMA timeslot count
-            16'h0114: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[29:0]; // TDMA schedule start ns
-            16'h0118: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[63:32]; // TDMA schedule start sec l
-            16'h011C: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[79:64]; // TDMA schedule start sec h
-            16'h0124: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[29:0]; // TDMA schedule period ns
-            16'h0128: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[63:32]; // TDMA schedule period sec l
-            16'h012C: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[79:64]; // TDMA schedule period sec h
-            16'h0134: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[29:0]; // TDMA timeslot period ns
-            16'h0138: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[63:32]; // TDMA timeslot period sec l
-            16'h013C: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[79:64]; // TDMA timeslot period sec h
-            16'h0144: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[29:0]; // TDMA active period ns
-            16'h0148: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[63:32]; // TDMA active period sec l
-            16'h014C: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[79:64]; // TDMA active period sec h
+            16'h1008: axil_ctrl_rdata_reg <= 2**TDMA_INDEX_WIDTH; // TDMA timeslot count
+            16'h1014: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[29:0]; // TDMA schedule start ns
+            16'h1018: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[63:32]; // TDMA schedule start sec l
+            16'h101C: axil_ctrl_rdata_reg <= set_tdma_schedule_start_reg[79:64]; // TDMA schedule start sec h
+            16'h1024: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[29:0]; // TDMA schedule period ns
+            16'h1028: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[63:32]; // TDMA schedule period sec l
+            16'h102C: axil_ctrl_rdata_reg <= set_tdma_schedule_period_reg[79:64]; // TDMA schedule period sec h
+            16'h1034: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[29:0]; // TDMA timeslot period ns
+            16'h1038: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[63:32]; // TDMA timeslot period sec l
+            16'h103C: axil_ctrl_rdata_reg <= set_tdma_timeslot_period_reg[79:64]; // TDMA timeslot period sec h
+            16'h1044: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[29:0]; // TDMA active period ns
+            16'h1048: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[63:32]; // TDMA active period sec l
+            16'h104C: axil_ctrl_rdata_reg <= set_tdma_active_period_reg[79:64]; // TDMA active period sec h
         endcase
     end
 
@@ -712,6 +727,8 @@ always @(posedge clk) begin
 
         sched_enable_reg <= 1'b0;
         rss_mask_reg <= 0;
+        tx_mtu_reg <= MAX_TX_SIZE;
+        rx_mtu_reg <= MAX_RX_SIZE;
         tdma_enable_reg <= 1'b0;
     end
 end
@@ -1078,7 +1095,7 @@ end
 endgenerate
 
 axis_fifo #(
-    .DEPTH(32*AXIS_DESC_DATA_WIDTH/8),
+    .DEPTH(TX_DESC_FIFO_SIZE*DESC_SIZE),
     .DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
     .LAST_ENABLE(1),
@@ -1134,10 +1151,13 @@ tx_engine #(
     .CPL_QUEUE_INDEX_WIDTH(TX_CPL_QUEUE_INDEX_WIDTH),
     .DESC_TABLE_SIZE(TX_DESC_TABLE_SIZE),
     .DESC_TABLE_DMA_OP_COUNT_WIDTH(DESC_TABLE_DMA_OP_COUNT_WIDTH),
-    .PKT_TABLE_SIZE(TX_PKT_TABLE_SIZE),
     .MAX_TX_SIZE(MAX_TX_SIZE),
+    .TX_BUFFER_OFFSET(0),
+    .TX_BUFFER_SIZE(TX_RAM_SIZE),
+    .TX_BUFFER_STEP_SIZE(SEG_COUNT*SEG_BE_WIDTH),
     .DESC_SIZE(DESC_SIZE),
     .CPL_SIZE(CPL_SIZE),
+    .MAX_DESC_REQ(TX_MAX_DESC_REQ),
     .AXIS_DESC_DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .AXIS_DESC_KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
@@ -1264,7 +1284,7 @@ tx_engine_inst (
 );
 
 axis_fifo #(
-    .DEPTH(32*AXIS_DESC_DATA_WIDTH/8),
+    .DEPTH(RX_DESC_FIFO_SIZE*DESC_SIZE),
     .DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
     .LAST_ENABLE(1),
@@ -1321,11 +1341,14 @@ rx_engine #(
     .DESC_TABLE_SIZE(RX_DESC_TABLE_SIZE),
     .DESC_TABLE_DMA_OP_COUNT_WIDTH(DESC_TABLE_DMA_OP_COUNT_WIDTH),
     .MAX_RX_SIZE(MAX_RX_SIZE),
+    .RX_BUFFER_OFFSET(0),
+    .RX_BUFFER_SIZE(RX_RAM_SIZE),
+    .RX_BUFFER_STEP_SIZE(SEG_COUNT*SEG_BE_WIDTH),
     .DESC_SIZE(DESC_SIZE),
     .CPL_SIZE(CPL_SIZE),
+    .MAX_DESC_REQ(RX_MAX_DESC_REQ),
     .AXIS_DESC_DATA_WIDTH(AXIS_DESC_DATA_WIDTH),
     .AXIS_DESC_KEEP_WIDTH(AXIS_DESC_KEEP_WIDTH),
-    .PKT_TABLE_SIZE(RX_PKT_TABLE_SIZE),
     .PTP_TS_ENABLE(PTP_TS_ENABLE),
     .RX_HASH_ENABLE(RX_HASH_ENABLE),
     .RX_CHECKSUM_ENABLE(RX_CHECKSUM_ENABLE)
@@ -1453,6 +1476,7 @@ rx_engine_inst (
     /*
      * Configuration
      */
+    .mtu(rx_mtu_reg),
     .enable(1'b1)
 );
 
